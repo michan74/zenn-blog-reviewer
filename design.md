@@ -2,131 +2,201 @@
 
 ## 方針・アーキテクチャ
 
-Python + Streamlit の Web アプリとして実装する。
-ユーザー名を入力フォームで受け取り、Zenn API で全記事を取得→テキスト抽出→分析→画面表示 の流れで動く。
-Streamlit Community Cloud に GitHub リポジトリを連携してデプロイする。
+Python + Streamlit の Web アプリ。ユーザー名 → Zenn API で全記事取得 → キャラクター診断 + ワードクラウド生成 → 結果表示。
 
-- HTTP リクエスト: `requests`
+- HTTP: `requests`
 - HTML パース: `BeautifulSoup4`
-- テキスト分析: 独自実装（`collections.Counter` + 正規表現）
-- 知識地図: `pyvis`（force-directed graph）+ `streamlit-components`
+- 形態素解析: `ja-ginza`（名詞抽出）
+- ワードクラウド: `wordcloud` ライブラリ（Noto CJK フォント使用）
+- くまSVG: Python 内でピクセルアート SVG 文字列を生成（外部ライブラリなし）
 - UI: `streamlit`
+- 開発環境: Docker
+
+---
 
 ## ファイル構成
 
 ```
-app.py                     — Streamlit エントリポイント: UI・全体オーケストレーション
+app.py                      — 変更: UIを全面書き直し（キャラ診断 + ワードクラウド表示）
 src/
-  zenn_client.py           — Zenn API クライアント（ユーザー情報・記事一覧・記事HTML取得）
-  content_parser.py        — 記事HTMLからテキスト・絵文字を抽出
-  phrase_analyzer.py       — 口癖・よく使う構文・面白フレーズの分析
-  fortune_analyzer.py      — 絵文字の頻度から占いメッセージを生成
-  knowledge_map.py         — キーワード共起グラフの構築・pyvis HTML生成
-requirements.txt
-Dockerfile                 — Python 3.12-slim ベース、streamlit run app.py を起動
-docker-compose.yml         — ポート 8501 マッピング・ホットリロード用ボリューム設定
+  models.py                 — 変更: Article に liked_count, publication_name を追加
+  zenn_client.py            — 変更: liked_count/publication 取得、body text 抽出を追加
+  character_diagnosis.py    — 新規: トレイトスコア計算 + くま名生成 + SVG生成
+  word_cloud_gen.py         — 新規: タイトル名詞からワードクラウド画像生成
+  knowledge_map.py          — 削除
+  content_parser.py         — 削除
+  phrase_analyzer.py        — 削除
+  fortune_analyzer.py       — 削除
+requirements.txt            — 変更: pyvis/scikit-learn削除、wordcloud追加
+Dockerfile                  — 変更: fonts-noto-cjk インストール追加
 ```
+
+---
 
 ## クラス・型定義
 
-### 共通データクラス (`src/models.py`)
-```python
-@dataclass
-class User:
-    username: str
-    name: str
+### Article（`src/models.py`）
 
+```python
 @dataclass
 class Article:
     slug: str
     title: str
-    published_at: str
-
-@dataclass
-class ArticleContent:
-    slug: str
-    title: str
-    text: str
-    emojis: list[str]
-
-@dataclass
-class AnalysisResult:
-    username: str
-    article_count: int
-    habits: list[tuple[str, int]]          # (フレーズ, 出現回数)
-    syntax_patterns: list[tuple[str, int]] # (パターン名, 出現回数)
-    interesting_phrases: list[str]
-    fortune: tuple[str, str]               # (絵文字, メッセージ)
-    knowledge_map_html: str                # pyvis が生成した graph HTML
+    published_at: str           # ISO8601 例: "2024-12-01T..."
+    tags: list[str]
+    liked_count: int            # 追加
+    publication_name: str | None  # 追加: publication 経由なら名前、なければ None
+    body_text: str = ""         # 追加: 本文テキスト（取得後にセット）
 ```
 
-### ZennClient (`src/zenn_client.py`)
-- **役割**: Zenn API へのHTTPリクエストをまとめる
-- **主なメソッド**:
-  - `get_user(username: str) -> User` — ユーザー情報取得
-  - `get_all_articles(username: str) -> list[Article]` — 全記事取得（ページネーションループ）
-  - `get_article_html(username: str, slug: str) -> str` — 記事HTMLを取得
+`User` / `AnalysisResult` は削除（不要になったため）。
 
-### ContentParser (`src/content_parser.py`)
-- **役割**: 記事HTMLからプレーンテキストと絵文字を抽出する
-- **主なメソッド**:
-  - `parse(html: str, slug: str, title: str) -> ArticleContent` — BeautifulSoup でテキスト・絵文字を取り出す
+---
 
-### PhraseAnalyzer (`src/phrase_analyzer.py`)
-- **役割**: 複数記事のテキストを横断して頻出パターンを発見する
-- **主なメソッド**:
-  - `find_habits(texts: list[str]) -> list[tuple[str, int]]` — 口癖（文末表現・接続詞等）を集計
-  - `find_syntax_patterns(texts: list[str]) -> list[tuple[str, int]]` — コードブロック・箇条書き等の構文頻度
-  - `find_interesting_phrases(texts: list[str]) -> list[str]` — ユニークで面白い表現をサンプリング
+### ZennClient（`src/zenn_client.py`）
 
-### KnowledgeMap (`src/knowledge_map.py`)
-- **役割**: 全記事のキーワードを抽出し、共起関係を pyvis の force-directed graph で可視化する
 - **主なメソッド**:
-  - `build_graph(contents: list[ArticleContent]) -> str` — 共起グラフを構築し、pyvis の HTML 文字列を返す
-- **グラフの構造**:
-  - ノード = 抽出キーワード（出現頻度が高いほどノードが大きい）
-  - エッジ = 同一記事内で共起した関係（共起回数が多いほど線が太い）
-  - レイアウト = pyvis の Barnes-Hut アルゴリズム（Obsidian に近い力学的配置）
-- **Streamlit への埋め込み**: `st.components.v1.html(html, height=600)`
+  - `get_user(username: str) -> User` — 変更なし
+  - `get_all_articles(username: str) -> list[Article]` — 変更: `liked_count`, `publication_name` を取得
+  - `fetch_body_texts(username: str, articles: list[Article]) -> None` — 追加: 全記事の本文HTMLを取得しパースして `article.body_text` にセット（sleep 0.5s/件）
 
-### FortuneAnalyzer (`src/fortune_analyzer.py`)
-- **役割**: 絵文字の出現傾向から占いメッセージを生成する
-- **主なメソッド**:
-  - `analyze(emojis: list[str]) -> tuple[str, str]` — 最頻出絵文字に対応する占いメッセージを返す
+`fetch_body_texts` は BeautifulSoup で `<article>` タグ内のテキストを抽出し `body_text` に代入する。
+
+---
+
+### CharacterDiagnosis（`src/character_diagnosis.py`）
+
+- **役割**: 記事リストからトレイトを16種類スコアリングし、上位3つを組み合わせてくま名とSVGを生成する
+
+#### トレイト一覧
+
+| key | label（表示名） | スコア計算の根拠 |
+|---|---|---|
+| `ai` | AI派 | タイトル/タグに AI, LLM, ChatGPT, 機械学習 等 |
+| `infra` | インフラ職人 | タグに AWS, GCP, Docker, Kubernetes, Linux 等 |
+| `backend` | バックエンド侍 | タグに Python, Go, Java, Ruby, Rust, DB 等 |
+| `frontend` | フロント職人 | タグに React, Vue, Next.js, CSS, TypeScript 等 |
+| `december` | 師走の申し子 | 全記事のうち12月投稿の割合 |
+| `prolific` | 量産型 | 総記事数（30件以上で最高スコア） |
+| `sleepy` | 冬眠中 | 最終投稿から1年以上 or 記事数5件未満 |
+| `fresh` | フレッシュ | タイトルに「初心者」「入門」「初めて」「やってみた」 |
+| `event` | 外面派 | タイトルに「参加」「登壇」「LT」「イベント」「レポート」 |
+| `buzzy` | バズり屋 | liked_count 合計が多い or 1記事で50以上 |
+| `bookworm` | 本の虫 | タイトルに「本」「書評」「読んだ」「まとめ」 |
+| `hackathon` | ハッカソン廃人 | タイトルに「ハッカソン」「hackathon」 |
+| `emoji_food` | 食いしん坊 | body_text 中の食べ物絵文字（🍣🍜🍕等）の出現数 |
+| `emoji_cat` | ねこ派 | body_text 中の猫絵文字（🐱🐈等）の出現数 |
+| `emoji_bear` | 本物のくま | body_text 中のくま絵文字（🐻🐼等）の出現数 |
+| `casual` | タメ口系 | body_text 中の「だよ」「だね」「じゃん」等の出現率 |
+
+スコアは `0.0〜1.0` に正規化。全トレイト中スコアが低すぎる場合は `sleepy` を強制選出する。
+
+#### くま名生成
+
+上位3トレイトの形容詞を連結：
+
+```
+{trait1_adj}、{trait2_adj}、{trait3_adj} くま
+例: 「AI派で、フレッシュで、バズり屋なくま」
+```
+
+各トレイトの形容詞テンプレートは dict で定義。
+
+#### くま SVG
+
+16×16 ピクセルアートのくまを SVG の `<rect>` 要素で描画。
+
+- キャンバス: `160×200px`（くま本体＋余白）
+- ピクセルサイズ: 10×10px
+- くまの色: トップトレイトに対応するカラー（下記）
+
+| トレイト | くまカラー |
+|---|---|
+| ai | `#4A90D9`（ブルー） |
+| infra | `#E8855A`（オレンジ） |
+| backend | `#4A7C59`（グリーン） |
+| frontend | `#7B61FF`（パープル） |
+| december | `#CC3333`（レッド） |
+| prolific | `#E8B84B`（ゴールド） |
+| sleepy | `#999999`（グレー） |
+| fresh | `#2EBFB3`（ターコイズ） |
+| event | `#D4A574`（コーラル） |
+| buzzy | `#FFD700`（ゴールド濃） |
+| bookworm | `#8B4513`（ブラウン） |
+| hackathon | `#FF6B6B`（ピンク） |
+| emoji_food | `#FF8C00`（ダークオレンジ） |
+| emoji_cat | `#F4A460`（サンディ） |
+| emoji_bear | `#8B4513`（ブラウン） |
+| casual | `#708090`（スレートグレー） |
+
+くまのピクセル定義: `BEAR_PIXELS: list[list[int]]` として `character_diagnosis.py` 内に定数定義。`0` = 透明、`1` = くまボディ色、`2` = 目・鼻（ダーク）、`3` = 口元（ライト）。
+
+- **メソッド**:
+  - `diagnose(articles: list[Article]) -> DiagnosisResult` — トレイトスコア計算 → 上位3選出
+  - `_score_traits(articles) -> dict[str, float]` — 全16トレイトをスコアリング
+  - `_make_bear_name(top3: list[str]) -> str` — くま名文字列生成
+  - `_make_bear_svg(top_trait: str) -> str` — SVG文字列生成
+
+#### DiagnosisResult（dataclass）
+
+```python
+@dataclass
+class DiagnosisResult:
+    bear_name: str              # 例: "AI派で、フレッシュで、バズり屋なくま"
+    top_traits: list[str]       # 上位3トレイトのkey
+    trait_scores: dict[str, float]
+    bear_svg: str               # SVG文字列
+```
+
+---
+
+### WordCloudGen（`src/word_cloud_gen.py`）
+
+- **役割**: 記事タイトルから名詞を抽出しワードクラウド画像を生成する
+- **メソッド**:
+  - `generate(articles: list[Article]) -> bytes` — PNG バイト列を返す（`st.image()` に渡す）
+- **処理**:
+  1. GiNZA で全タイトルから名詞を抽出
+  2. `wordcloud.WordCloud(font_path=NOTO_FONT_PATH, ...)` で画像生成
+  3. `io.BytesIO` で PNG バイト列として返す
+- **フォントパス**: `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`（Dockerfile でインストール）
+
+---
 
 ## 主要な処理フロー
 
 ```
-Streamlit UI (app.py)
-  └─ テキスト入力: username
-  └─ ボタン押下 → st.spinner() で処理中表示
-       ZennClient.get_user()          → ユーザー存在確認・名前表示
-       ZennClient.get_all_articles()  → 全記事取得（ページネーション）
-       for each article:
-         ZennClient.get_article_html() → HTML取得（sleep 0.5s）
-         ContentParser.parse()          → テキスト・絵文字抽出
-         st.progress() で進捗表示
-       PhraseAnalyzer.find_habits()
-       PhraseAnalyzer.find_syntax_patterns()
-       PhraseAnalyzer.find_interesting_phrases()
-       FortuneAnalyzer.analyze()
-       KnowledgeMap.build_graph()
-  └─ 結果を st.tabs() で分割表示
-       - あなたの知識地図タブ（pyvis graph を st.components.v1.html で表示）
-       - 口癖タブ
-       - よく使う構文タブ
-       - 面白フレーズタブ
-       - 占いタブ
+app.py: ユーザー名入力 → ボタン押下
+  ZennClient.get_user()              → ユーザー情報
+  ZennClient.get_all_articles()      → 記事一覧（liked_count、publication含む）
+  ZennClient.fetch_body_texts()      → 全記事の本文テキスト取得（プログレスバーで表示）
+  CharacterDiagnosis.diagnose()      → DiagnosisResult
+  WordCloudGen.generate()            → PNG bytes
+
+表示:
+  ┌─────────────────────────────────────────────┐
+  │ くまSVG          くま名                      │
+  │                  トレイトバッジ x3            │
+  │                  ハートステータス             │
+  ├─────────────────────────────────────────────┤
+  │ ワードクラウド（タイトルの頻出単語）           │
+  └─────────────────────────────────────────────┘
 ```
+
+### ステータス（ハート表示）
+
+- 総記事数 → ハートの数（最大表示30個、超える場合は `+N` 表示）
+- 通常記事: `♥`（ターコイズ）
+- Publication 記事: `♥`（ゴールド）
+
+---
 
 ## 考慮事項・決定事項
 
-- **レート制限対策**: 記事HTML取得は `time.sleep(0.5)` を挟む
+- **本文取得**: `fetch_body_texts` は 0.5s sleep。記事数が多い場合（>50件）は st.progress で進捗表示し体感を改善する
+- **スコア正規化**: 各トレイトはカウントを最大期待値で割って `0-1` に clamp する。`sleepy` は他が全て 0 に近いとき強制上位に入る
+- **くまSVG**: 外部ファイルなし、Python 文字列定数として管理。1種類のベアデザイン＋カラー変更で対応（アクセサリ追加は将来拡張）
+- **ワードクラウド色**: Lagoon カラーパレット（ターコイズ系）に揃える
+- **不要ファイル削除**: `knowledge_map.py`, `content_parser.py`, `phrase_analyzer.py`, `fortune_analyzer.py` は削除
 - **キャッシュ**: `@st.cache_data` で同一ユーザーの再取得を抑制
-- **口癖検出**: 「〜ですね」「〜かも」「つまり」「要するに」など文末・接続詞パターンを正規表現 + `Counter` で集計
-- **構文パターン**: コードブロック(```)、見出し(#)、箇条書き(-) の使用頻度をカウント
-- **占い**: 絵文字を感情カテゴリ（ポジティブ/テック系/食べ物など）にマッピングしメッセージを返す
-- **開発環境**: Docker（`docker compose up` で起動、ホットリロードあり）
-- **デプロイ**: Streamlit Community Cloud（GitHub 連携、無料）
-- **知識地図のキーワード抽出**: 名詞・専門用語を正規表現で抽出（形態素解析なし）。記事タイトルの単語も優先的にノードに含める
-- **ノード数の上限**: 多すぎると見づらいので上位50キーワードに絞る
+- **Docker**: `FROM python:3.12-slim` + `apt-get install fonts-noto-cjk` で日本語フォント追加
