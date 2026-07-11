@@ -82,14 +82,14 @@ TRAIT_PRIORITY: dict[str, float] = {
     "infra":      1.0,
     "backend":    1.0,
     "frontend":   1.0,
-    "december":   1.0,
+    "december":   0.8,
     "prolific":   0.65,
     "sleepy":     1.0,
     "fresh":      0.6,
     "event":      0.8,
     "buzzy":      0.7,
     "bookworm":   1.0,
-    "hackathon":  1.0,
+    "hackathon":  0.8,
     "emoji_food": 1.0,
     "emoji_cat":  1.0,
     "emoji_dog":  1.0,
@@ -237,10 +237,10 @@ ACCESSORY_SVG: dict[str, str] = {
     ),
 }
 
-_AI_KEYWORDS = {"ai", "llm", "chatgpt", "claude", "copilot", "codex", "機械学習", "深層学習", "生成ai"}
-_INFRA_TAGS = {"aws", "gcp", "azure", "docker", "kubernetes", "k8s", "linux", "terraform", "ansible"}
-_BACKEND_TAGS = {"python", "go", "java", "ruby", "rust", "php", "mysql", "postgresql", "django", "rails", "db", "database", "sql"}
-_FRONTEND_TAGS = {"react", "vue", "next.js", "next", "angular", "typescript", "css", "html", "svelte", "nuxt"}
+_AI_KEYWORDS = {"ai", "llm", "chatgpt", "claude", "copilot", "codex", "gemini", "機械学習", "深層学習", "生成ai"}
+_INFRA_KEYWORDS = {"aws", "gcp", "azure", "docker", "kubernetes", "k8s", "linux", "terraform", "ansible"}
+_BACKEND_KEYWORDS = {"python", "go", "java", "ruby", "rust", "php", "mysql", "postgresql", "django", "rails", "db", "database", "sql"}
+_FRONTEND_KEYWORDS = {"react", "vue", "next.js", "next", "angular", "typescript", "css", "html", "svelte", "nuxt"}
 
 
 @dataclass
@@ -278,19 +278,26 @@ class CharacterDiagnosis:
 
         scores["ai"] = sum(
             1 for a in articles
-            if any(kw in a.title.lower() or kw in " ".join(a.tags).lower() for kw in _AI_KEYWORDS)
+            if any(kw in a.title.lower() for kw in _AI_KEYWORDS)
+            or any(kw in t.lower() for kw in _AI_KEYWORDS for t in a.tags)
         ) / n
 
         scores["infra"] = sum(
-            1 for a in articles if any(t.lower() in _INFRA_TAGS for t in a.tags)
+            1 for a in articles
+            if any(t.lower() in _INFRA_KEYWORDS for t in a.tags)
+            or any(kw in a.title.lower() for kw in _INFRA_KEYWORDS)
         ) / n
 
         scores["backend"] = sum(
-            1 for a in articles if any(t.lower() in _BACKEND_TAGS for t in a.tags)
+            1 for a in articles
+            if any(t.lower() in _BACKEND_KEYWORDS for t in a.tags)
+            or any(kw in a.title.lower() for kw in _BACKEND_KEYWORDS)
         ) / n
 
         scores["frontend"] = sum(
-            1 for a in articles if any(t.lower() in _FRONTEND_TAGS for t in a.tags)
+            1 for a in articles
+            if any(t.lower() in _FRONTEND_KEYWORDS for t in a.tags)
+            or any(kw in a.title.lower() for kw in _FRONTEND_KEYWORDS)
         ) / n
 
         scores["december"] = sum(
@@ -314,7 +321,7 @@ class CharacterDiagnosis:
         else:
             scores["sleepy"] = 0.0
 
-        _fresh_kw = {"初心者", "入門", "初めて", "やってみた"}
+        _fresh_kw = {"初心者", "入門", "初めて", "やってみた", "挑戦", "try"}
         scores["fresh"] = sum(1 for a in articles if any(kw in a.title for kw in _fresh_kw)) / n
 
         _event_kw = {"参加", "登壇", "LT", "イベント", "レポート"}
@@ -322,7 +329,7 @@ class CharacterDiagnosis:
 
         scores["buzzy"] = min(max((a.liked_count for a in articles), default=0) / 100, 1.0)
 
-        _book_kw = {"書評", "読んだ", "読書"}
+        _book_kw = {"書評", "読んだ", "読書","本", "図書"}
         scores["bookworm"] = sum(1 for a in articles if any(kw in a.title for kw in _book_kw)) / n
 
         hackathon_count = sum(
@@ -336,7 +343,7 @@ class CharacterDiagnosis:
         scores["emoji_dog"] = sum(1 for a in articles if a.emoji in DOG_EMOJIS) / n
         scores["emoji_bear"] = sum(1 for a in articles if a.emoji in BEAR_EMOJIS) / n
 
-        _casual_kw = {"してみた", "じゃん", "だよ", "だね", "だよね", "〜"}
+        _casual_kw = {"してみた", "じゃん", "だよ", "だね", "だよね", "〜","!","?","!?"}
         scores["casual"] = sum(1 for a in articles if any(kw in a.title for kw in _casual_kw)) / n
 
         return scores
