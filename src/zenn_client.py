@@ -1,10 +1,8 @@
-import time
-
 import requests
 
 from .models import Article, User
 
-TIMEOUT = 15  # seconds
+TIMEOUT = 15
 
 
 class ZennClient:
@@ -44,18 +42,15 @@ class ZennClient:
                 break
             for item in items:
                 tags = [t["name"] for t in item.get("topics", [])]
+                pub = item.get("publication") or {}
                 articles.append(Article(
                     slug=item["slug"],
                     title=item["title"],
                     published_at=item.get("published_at", ""),
                     tags=tags,
+                    liked_count=item.get("liked_count", 0),
+                    publication_name=pub.get("name"),
+                    emoji=item.get("emoji", ""),
                 ))
             page += 1
         return articles
-
-    def get_article_html(self, username: str, slug: str) -> str:
-        time.sleep(0.5)
-        url = f"{self.BASE_URL}/{username}/articles/{slug}"
-        response = self._get(url)
-        response.raise_for_status()
-        return response.text
