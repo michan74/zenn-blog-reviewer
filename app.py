@@ -129,7 +129,7 @@ def run_analysis(username: str) -> tuple:
 
 st.markdown("<h1>Zenn ブログ分析</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p style='color:#666;margin-bottom:2rem'>Zenn ユーザー名を入力すると、記事からキャラクター診断とワードクラウドを生成します。</p>",
+    "<p style='color:#666;margin-bottom:2rem'>Zenn ユーザー名を入力すると、記事からくま診断とワードクラウドを生成します。</p>",
     unsafe_allow_html=True,
 )
 
@@ -164,9 +164,9 @@ if "result" in st.session_state:
         unsafe_allow_html=True,
     )
 
-    # キャラクター診断カード
+    # くま診断カード
     st.markdown('<div class="section-card">', unsafe_allow_html=True)
-    st.markdown('<div class="section-title">キャラクター診断</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">くま診断</div>', unsafe_allow_html=True)
 
     col_bear, col_info = st.columns([1, 2])
 

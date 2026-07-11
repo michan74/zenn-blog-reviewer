@@ -15,6 +15,7 @@ FOOD_EMOJI_RANGES = [
 
 CAT_EMOJIS = {"🐱", "🐈", "😺", "🐈‍⬛", "😹", "😻", "🙀", "😿", "😼", "😽", "😾"}
 BEAR_EMOJIS = {"🐻", "🐼", "🧸", "🐻‍❄️"}
+DOG_EMOJIS = {"🐶", "🐕", "🐩", "🦮", "🐕‍🦺", "🐾"}
 
 TRAIT_LABELS: dict[str, str] = {
     "ai":        "AI派",
@@ -31,6 +32,7 @@ TRAIT_LABELS: dict[str, str] = {
     "hackathon": "ハッカソン廃人",
     "emoji_food": "食いしん坊",
     "emoji_cat":  "ねこ派",
+    "emoji_dog":  "犬派",
     "emoji_bear": "本物のくま",
     "casual":    "タメ口系",
 }
@@ -45,7 +47,8 @@ TRAIT_NAME_PARTS: dict[str, str] = {
     "emoji_food": "食いしん坊",
     "event":      "外面いい",
     "buzzy":      "バズり",
-    "emoji_cat":  "ねこ",
+    "emoji_cat":  "ねこ派",
+    "emoji_dog":  "犬派",
     "hackathon":  "ひま",
     "emoji_bear": "正真正銘",
     "infra":      "工事",
@@ -69,8 +72,29 @@ TRAIT_COLORS: dict[str, str] = {
     "hackathon":  "#FF6B6B",
     "emoji_food": "#FF8C00",
     "emoji_cat":  "#F4A460",
+    "emoji_dog":  "#DAA520",
     "emoji_bear": "#8B4513",
     "casual":     "#708090",
+}
+
+TRAIT_PRIORITY: dict[str, float] = {
+    "ai":         1.0,
+    "infra":      1.0,
+    "backend":    1.0,
+    "frontend":   1.0,
+    "december":   1.0,
+    "prolific":   0.65,
+    "sleepy":     1.0,
+    "fresh":      0.6,
+    "event":      0.8,
+    "buzzy":      0.7,
+    "bookworm":   1.0,
+    "hackathon":  1.0,
+    "emoji_food": 1.0,
+    "emoji_cat":  1.0,
+    "emoji_dog":  1.0,
+    "emoji_bear": 1.0,
+    "casual":     0.5,
 }
 
 # 0=透明, 1=ボディ色, 2=目・鼻(ダーク), 3=口元(ライト)
@@ -192,6 +216,12 @@ ACCESSORY_SVG: dict[str, str] = {
         '<polygon points="131,47 136,32 121,41" fill="#FFB6C1"/>'
         '</g>'
     ),
+    "emoji_dog": (
+        '<g>'
+        '<rect x="5" y="44" width="22" height="62" rx="11" fill="#DAA520"/>'
+        '<rect x="133" y="44" width="22" height="62" rx="11" fill="#DAA520"/>'
+        '</g>'
+    ),
     "emoji_bear": (
         '<g>'
         '<polygon points="80,148 74,162 60,162 71,171 67,185 80,176 93,185 89,171 100,162 86,162"'
@@ -267,7 +297,7 @@ class CharacterDiagnosis:
             1 for a in articles if a.published_at and a.published_at[5:7] == "12"
         ) / n
 
-        scores["prolific"] = min(n / 30, 1.0)
+        scores["prolific"] = min(n / 50, 1.0)
 
         now = datetime.now(timezone.utc)
         last_pub = max((a.published_at for a in articles if a.published_at), default="")
@@ -290,20 +320,23 @@ class CharacterDiagnosis:
         _event_kw = {"参加", "登壇", "LT", "イベント", "レポート"}
         scores["event"] = sum(1 for a in articles if any(kw in a.title for kw in _event_kw)) / n
 
-        scores["buzzy"] = min(max((a.liked_count for a in articles), default=0) / 50, 1.0)
+        scores["buzzy"] = min(max((a.liked_count for a in articles), default=0) / 100, 1.0)
 
         _book_kw = {"書評", "読んだ", "読書"}
         scores["bookworm"] = sum(1 for a in articles if any(kw in a.title for kw in _book_kw)) / n
 
-        scores["hackathon"] = 0.8 if any(
-            "ハッカソン" in a.title or "hackathon" in a.title.lower() for a in articles
-        ) else 0.0
+        hackathon_count = sum(
+            1 for a in articles
+            if "ハッカソン" in a.title or "hackathon" in a.title.lower()
+        )
+        scores["hackathon"] = min(hackathon_count / n * 4, 0.8)
 
         scores["emoji_food"] = sum(1 for a in articles if _is_food_emoji(a.emoji)) / n
         scores["emoji_cat"] = sum(1 for a in articles if a.emoji in CAT_EMOJIS) / n
+        scores["emoji_dog"] = sum(1 for a in articles if a.emoji in DOG_EMOJIS) / n
         scores["emoji_bear"] = sum(1 for a in articles if a.emoji in BEAR_EMOJIS) / n
 
-        _casual_kw = {"してみた", "じゃん", "！", "？", "だよ", "だね"}
+        _casual_kw = {"してみた", "じゃん", "だよ", "だね", "だよね", "〜"}
         scores["casual"] = sum(1 for a in articles if any(kw in a.title for kw in _casual_kw)) / n
 
         return scores
@@ -347,7 +380,11 @@ class CharacterDiagnosis:
 
     def diagnose(self, articles: list[Article]) -> DiagnosisResult:
         scores = self._score_traits(articles)
-        sorted_traits = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        sorted_traits = sorted(
+            scores.items(),
+            key=lambda x: x[1] * TRAIT_PRIORITY.get(x[0], 1.0),
+            reverse=True,
+        )
 
         if all(v < 0.05 for v in scores.values()):
             sorted_traits = [("sleepy", 1.0)] + [t for t in sorted_traits if t[0] != "sleepy"]

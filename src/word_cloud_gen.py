@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import glob
 import io
 import os
 
@@ -8,7 +9,20 @@ from wordcloud import WordCloud
 
 from .models import Article
 
-NOTO_FONT_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+_FONT_CANDIDATES = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux/Docker
+    "/usr/share/fonts/noto-cjk/NotoSansCJKjp-Regular.otf",
+]
+# macOS: ヒラギノ (path varies by OS version)
+_FONT_CANDIDATES += glob.glob("/System/Library/Fonts/ヒラギノ*.ttc")
+_FONT_CANDIDATES += glob.glob("/System/Library/Fonts/Hiragino*.ttc")
+
+
+def _find_cjk_font() -> str | None:
+    for path in _FONT_CANDIDATES:
+        if os.path.exists(path):
+            return path
+    return None
 
 _LAGOON_COLORS = ["#2EBFB3", "#1A5F7A", "#4A7C59", "#8ECFCC", "#D4A574", "#4A90D9"]
 
@@ -35,7 +49,7 @@ class WordCloudGen:
 
         text = " ".join(words)
 
-        font_path = NOTO_FONT_PATH if os.path.exists(NOTO_FONT_PATH) else None
+        font_path = _find_cjk_font()
 
         wc = WordCloud(
             font_path=font_path,
