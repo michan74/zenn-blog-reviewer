@@ -51,6 +51,7 @@ class ZennClient:
                     liked_count=item.get("liked_count", 0),
                     publication_name=pub.get("name"),
                     emoji=item.get("emoji", ""),
+                    article_type=item.get("article_type", "tech"),
                 ))
             page += 1
         return articles

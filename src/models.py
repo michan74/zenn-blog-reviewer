@@ -16,3 +16,4 @@ class Article:
     liked_count: int
     publication_name: str | None
     emoji: str
+    article_type: str = "tech"

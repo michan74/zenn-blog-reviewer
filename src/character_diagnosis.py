@@ -35,6 +35,7 @@ TRAIT_LABELS: dict[str, str] = {
     "emoji_dog":  "犬派",
     "emoji_bear": "本物のくま",
     "casual":    "タメ口系",
+    "poemer":    "ポエマー",
 }
 
 TRAIT_NAME_PARTS: dict[str, str] = {
@@ -55,6 +56,7 @@ TRAIT_NAME_PARTS: dict[str, str] = {
     "backend":    "サラリー",
     "frontend":   "ホール",
     "bookworm":   "読書家",
+    "poemer":     "ポエマー",
 }
 
 TRAIT_COLORS: dict[str, str] = {
@@ -75,6 +77,7 @@ TRAIT_COLORS: dict[str, str] = {
     "emoji_dog":  "#DAA520",
     "emoji_bear": "#8B4513",
     "casual":     "#708090",
+    "poemer":     "#9B59B6",
 }
 
 TRAIT_PRIORITY: dict[str, float] = {
@@ -95,6 +98,7 @@ TRAIT_PRIORITY: dict[str, float] = {
     "emoji_dog":  1.0,
     "emoji_bear": 1.0,
     "casual":     0.5,
+    "poemer":     1.0,
 }
 
 # 0=透明, 1=ボディ色, 2=目・鼻(ダーク), 3=口元(ライト)
@@ -222,6 +226,13 @@ ACCESSORY_SVG: dict[str, str] = {
         '<rect x="133" y="44" width="22" height="62" rx="11" fill="#DAA520"/>'
         '</g>'
     ),
+    "poemer": (
+        '<g>'
+        '<rect x="88" y="18" width="58" height="36" rx="8" fill="#9B59B6"/>'
+        '<polygon points="96,54 108,54 100,66" fill="#9B59B6"/>'
+        '<text x="94" y="42" font-family="sans-serif" font-size="20" fill="#FFFFFF">✦</text>'
+        '</g>'
+    ),
     "emoji_bear": (
         '<g>'
         '<polygon points="80,148 74,162 60,162 71,171 67,185 80,176 93,185 89,171 100,162 86,162"'
@@ -345,6 +356,8 @@ class CharacterDiagnosis:
 
         _casual_kw = {"してみた", "じゃん", "だよ", "だね", "だよね", "〜","!","?","!?"}
         scores["casual"] = sum(1 for a in articles if any(kw in a.title for kw in _casual_kw)) / n
+
+        scores["poemer"] = sum(1 for a in articles if a.article_type == "idea") / n
 
         return scores
 
