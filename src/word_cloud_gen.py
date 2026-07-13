@@ -39,8 +39,8 @@ class WordCloudGen:
 
         wc = WordCloud(
             font_path=font_path,
-            width=800,
-            height=400,
+            width=1080,
+            height=420,
             background_color="#FAF7F2",
             color_func=_lagoon_color_func,
             max_words=80,
